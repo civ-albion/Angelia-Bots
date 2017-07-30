@@ -1,8 +1,10 @@
-package com.github.maxopoly.angelia_digger;
+package com.github.maxopoly.digging;
 
 import com.github.maxopoly.angeliacore.actions.actions.DigDown;
 import com.github.maxopoly.angeliacore.actions.actions.MoveTo;
-import com.github.maxopoly.angeliacore.model.Material;
+import com.github.maxopoly.angeliacore.connection.DisconnectReason;
+import com.github.maxopoly.angeliacore.connection.ServerConnection;
+import com.github.maxopoly.angeliacore.model.item.Material;
 import com.github.maxopoly.angeliacore.plugin.AngeliaPlugin;
 import org.kohsuke.MetaInfServices;
 
@@ -10,7 +12,7 @@ import org.kohsuke.MetaInfServices;
 public class DiggingBot extends AbstractMiningBot {
 
 	public DiggingBot() {
-		super("DiggingBot", 6, Material.DIAMOND_PICKAXE, 1);
+		super("DiggingBot", Material.DIAMOND_PICKAXE, 1);
 	}
 
 	@Override
@@ -25,21 +27,41 @@ public class DiggingBot extends AbstractMiningBot {
 	}
 
 	@Override
+	public void start() {
+		super.start();
+		connection.getLogger().info(
+				"Starting DiggingBot, estimated blocks to mine: " + field.getArea() * (field.getY() + tunnelHeight));
+	}
+
+	@Override
 	public void atEndOfField() {
+		connection.getLogger().info("Successfully cleared layers " + field.getY() + " to " + (field.getY() + tunnelHeight));
 		if (field.getY() == 1) {
 			connection.getLogger().info("Successfully dug down to bedrock. Logging off");
-			System.exit(0);
+			connection.close(DisconnectReason.Intentional_Disconnect);
 		}
 		pickTool();
-		queue.queue(new MoveTo(connection, field.getStartingLocation().getBlockCenterXZ(), MoveTo.WALKING_SPEED));
-		queue.queue(new DigDown(connection, field.getStartingLocation().getBlockCenterXZ(), 4, breakTime * 2));
-		int y = field.getY() - 4;
+		queue.queue(new MoveTo(connection, field.getStartingLocation().getBlockCenterXZ(), MoveTo.SPRINTING_SPEED));
+		int oldY = field.getY();
+		int y = field.getY() - tunnelHeight;
 		if (y <= 0) {
 			y = 1;
 		}
+		// might need to adjust this on the last layer
+		this.tunnelHeight = oldY - y;
+		queue.queue(new DigDown(connection, field.getStartingLocation().getBlockCenterXZ(), tunnelHeight,
+				getBreakTime(true)));
+		connection.getLogger().info("Starting next layer, estimated blocks left: " + field.getArea() * (y + tunnelHeight));
 		field = field.copy(y);
 		locIterator = field.iterator();
 		lastLocations.clear();
 		queueEmpty(null);
+	}
+
+	@Override
+	public AngeliaPlugin transistionToNewConnection(ServerConnection newConnection) {
+		DiggingBot digging = new DiggingBot();
+		enrichCopy(digging, newConnection);
+		return digging;
 	}
 }

@@ -1,11 +1,13 @@
-package com.github.maxopoly.angelia_digger;
+package com.github.maxopoly.digging;
 
 import com.github.maxopoly.angeliacore.actions.actions.LookAtAndBreakBlock;
 import com.github.maxopoly.angeliacore.actions.actions.MoveTo;
-import com.github.maxopoly.angeliacore.model.Location;
-import com.github.maxopoly.angeliacore.model.Material;
-import com.github.maxopoly.angeliacore.model.MovementDirection;
-import com.github.maxopoly.angeliacore.model.Vector;
+import com.github.maxopoly.angeliacore.connection.DisconnectReason;
+import com.github.maxopoly.angeliacore.connection.ServerConnection;
+import com.github.maxopoly.angeliacore.model.item.Material;
+import com.github.maxopoly.angeliacore.model.location.Location;
+import com.github.maxopoly.angeliacore.model.location.MovementDirection;
+import com.github.maxopoly.angeliacore.model.location.Vector;
 import com.github.maxopoly.angeliacore.plugin.AngeliaPlugin;
 import com.github.maxopoly.angeliacore.util.HorizontalField;
 import java.util.LinkedList;
@@ -23,7 +25,7 @@ public class TunnelBot extends AbstractMiningBot {
 	private MovementDirection orthogonal;
 
 	public TunnelBot() {
-		super("TunnelBot", createOptions(), 6, Material.DIAMOND_PICKAXE, 1);
+		super("TunnelBot", Material.DIAMOND_PICKAXE, 1);
 	}
 
 	@Override
@@ -35,7 +37,8 @@ public class TunnelBot extends AbstractMiningBot {
 	}
 
 	@Override
-	protected void parseOptions(Map<String, List<String>> args) {
+	protected void parseOptions(ServerConnection connection, Map<String, List<String>> args) {
+		this.connection = connection;
 		int x, z;
 		try {
 			x = Integer.parseInt(args.get("x").get(0));
@@ -81,11 +84,17 @@ public class TunnelBot extends AbstractMiningBot {
 		this.field = new HorizontalField(x, x + (int) digVector.getX(), z, z + (int) digVector.getZ(), y, direction,
 				orthogonal, true, snakeLineDistance);
 		this.locIterator = field.iterator();
+		int blocksToMine = height * width * length;
+		if (!doCorners) {
+			blocksToMine -= 4 * length;
+		}
+		connection.getLogger().info("Starting Tunnelbot, estimated blocks to mine: " + blocksToMine);
 	}
 
 	@Override
-	protected void handleLocation(Location loc, MovementDirection direction, int breakTime) {
+	protected void handleLocation(Location loc, MovementDirection direction, boolean rollBack) {
 		// break first 2 blocks
+		int breakTime = getBreakTime(rollBack);
 		queue.queue(new LookAtAndBreakBlock(connection, loc, breakTime));
 		queue.queue(new LookAtAndBreakBlock(connection, loc.relativeBlock(0, 1, 0), breakTime));
 		// move in
@@ -112,7 +121,8 @@ public class TunnelBot extends AbstractMiningBot {
 		}
 	}
 
-	private static List<Option> createOptions() {
+	@Override
+	protected List<Option> createOptions() {
 		List<Option> options = new LinkedList<Option>();
 		options.add(Option.builder("x").longOpt("x").numberOfArgs(1).required()
 				.desc("x part of the coordinate at which the rail bot will start").build());
@@ -134,7 +144,18 @@ public class TunnelBot extends AbstractMiningBot {
 	@Override
 	public void atEndOfField() {
 		connection.getLogger().info("Finished digging tunnel, logging off");
-		System.exit(0);
+		connection.close(DisconnectReason.Intentional_Disconnect);
+	}
+
+	@Override
+	public AngeliaPlugin transistionToNewConnection(ServerConnection newConnection) {
+		TunnelBot digging = new TunnelBot();
+		enrichCopy(digging, newConnection);
+		digging.width = this.width;
+		digging.height = this.height;
+		digging.orthogonal = this.orthogonal;
+		digging.doCorners = this.doCorners;
+		return digging;
 	}
 
 }
