@@ -222,7 +222,7 @@ public abstract class AbstractMiningBot extends AngeliaPlugin implements Angelia
 		pickTool();
 		// calculate breaking time
 		int breakTime = getBreakTime(rollBack);
-		Location currentLoc = loc.addVector(direction.getOpposite().toVector()).relativeBlock(0, -1, 0);
+		Location currentLoc = loc.relativeBlock(0, -1, 0).addVector(direction.getOpposite().toVector());
 		// if the player just got teleported back due to walking over a ledge, he might already be on the next block and
 		// we need to reconstruct the direction he came from
 		double xDiff = Math.abs(currentLoc.getX() - currentLoc.getBlockX());
@@ -245,9 +245,10 @@ public abstract class AbstractMiningBot extends AngeliaPlugin implements Angelia
 		}
 		// always place block
 		queue.queue(new PickHotbarItemByType(connection, Material.COBBLESTONE));
+		Location desto = loc.getBlockCenterXZ();
+		queue.queue(new MoveTo(connection, desto.getMiddle(loc.getBlockCenterXZ()), MoveTo.SPRINTING_SPEED));
 		queue.queue(new LookAtAndPlaceBlock(connection, currentLoc, direction.toBlockFace()));
-		System.out.println(currentLoc + "  " + direction.toBlockFace());
-		queue.queue(new MoveTo(connection, loc.getBlockCenterXZ(), MoveTo.SPRINTING_SPEED));
+		queue.queue(new MoveTo(connection, desto, MoveTo.SPRINTING_SPEED));
 
 		// every 8th block we want to double mine up, in case we have left a trail
 		boolean mineAgain = false;
@@ -290,7 +291,7 @@ public abstract class AbstractMiningBot extends AngeliaPlugin implements Angelia
 
 	@AngeliaEventHandler
 	public void hungerChange(HungerChangeEvent e) {
-		if (e.getNewValue() > 7) {
+		if (e.getNewValue() > e.getOldValue()) {
 			return;
 		}
 		queue.queue(new DetectAndEatFood(connection));
