@@ -12,10 +12,12 @@ import com.github.maxopoly.angeliacore.actions.actions.inventory.ChangeSelectedI
 import com.github.maxopoly.angeliacore.actions.actions.inventory.ClickInventory;
 import com.github.maxopoly.angeliacore.connection.DisconnectReason;
 import com.github.maxopoly.angeliacore.connection.ServerConnection;
+import com.github.maxopoly.angeliacore.connection.play.packets.out.ChatPacket;
 import com.github.maxopoly.angeliacore.event.AngeliaEventHandler;
 import com.github.maxopoly.angeliacore.event.AngeliaListener;
 import com.github.maxopoly.angeliacore.event.events.ActionQueueEmptiedEvent;
 import com.github.maxopoly.angeliacore.event.events.HungerChangeEvent;
+import com.github.maxopoly.angeliacore.event.events.PlayerSpawnEvent;
 import com.github.maxopoly.angeliacore.event.events.TeleportByServerEvent;
 import com.github.maxopoly.angeliacore.model.inventory.Inventory;
 import com.github.maxopoly.angeliacore.model.inventory.PlayerInventory;
@@ -27,6 +29,8 @@ import com.github.maxopoly.angeliacore.model.location.Vector;
 import com.github.maxopoly.angeliacore.plugin.AngeliaPlugin;
 import com.github.maxopoly.angeliacore.util.BreakTimeCalculator;
 import com.github.maxopoly.angeliacore.util.HorizontalField;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -36,6 +40,9 @@ import org.kohsuke.MetaInfServices;
 
 @MetaInfServices(AngeliaPlugin.class)
 public class TreeBot extends AngeliaPlugin implements AngeliaListener {
+
+	private static final List<String> allowedPlayers = Arrays.asList(new String[] { "awoo", "BlueSylvaer", "Smim02", "SafeSpace",
+			"RexDrillerson", "ZombieReagan", "AltVault", "Jezza" });
 
 	private static final int leafBreakTime = 7;
 
@@ -79,7 +86,40 @@ public class TreeBot extends AngeliaPlugin implements AngeliaListener {
 			handleTree(segment);
 			lineTreeCounter++;
 		}
+	}
 
+	@AngeliaEventHandler
+	public void playerNearby(PlayerSpawnEvent e) {
+		if (e.getOnlinePlayer() != null) {
+			if (allowedPlayers.contains(e.getOnlinePlayer().getName())) {
+				connection.getLogger().info(
+						e.getOnlinePlayer().getName()
+								+ " entered radar distance, but he is whitelisted, so ignoring it");
+				return;
+			}
+			queue.clear();
+			connection.getLogger().info("Logging off, because " + e.getOnlinePlayer().getName() + " is nearby");
+		}
+		ChatPacket packet;
+		try {
+			packet = new ChatPacket("/logout");
+		} catch (IOException ex) {
+			connection.getLogger().error("Failed to create logout msg", e);
+			System.exit(1);
+			return;
+		}
+		try {
+			connection.sendPacket(packet);
+		} catch (IOException ex) {
+			connection.getLogger().error("Failed to send message, server might have disconnected?");
+			System.exit(1);
+		}
+		new java.util.Timer().schedule(new java.util.TimerTask() {
+			@Override
+			public void run() {
+				System.exit(1);
+			}
+		}, 12000);
 	}
 
 	private void handleTree(List<Location> segment) {

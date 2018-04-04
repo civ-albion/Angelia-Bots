@@ -244,7 +244,23 @@ public abstract class AbstractMiningBot extends AngeliaPlugin implements Angelia
 			queue.queue(new LookAtAndBreakBlock(connection, toMine, breakTime));
 		}
 		// always place block
-		queue.queue(new PickHotbarItemByType(connection, Material.COBBLESTONE));
+		PickHotbarItemByType pick = new PickHotbarItemByType(connection, Material.COBBLESTONE);
+		queue.queue(pick);
+		queue.queue(new CodeAction(connection) {
+
+			@Override
+			public ActionLock[] getActionLocks() {
+				return new ActionLock[0];
+			}
+
+			@Override
+			public void execute() {
+				if (!pick.wasFound()) {
+					new PickHotbarItemByType(connection, Material.STONE).execute();
+				}
+
+			}
+		});
 		Location desto = loc.getBlockCenterXZ();
 		queue.queue(new MoveTo(connection, desto.getMiddle(loc.getBlockCenterXZ()), MoveTo.SPRINTING_SPEED));
 		queue.queue(new LookAtAndPlaceBlock(connection, currentLoc, direction.toBlockFace()));

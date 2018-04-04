@@ -4,9 +4,12 @@ import com.github.maxopoly.angeliacore.actions.ActionLock;
 import com.github.maxopoly.angeliacore.actions.ActionQueue;
 import com.github.maxopoly.angeliacore.actions.CodeAction;
 import com.github.maxopoly.angeliacore.actions.actions.DetectAndEatFood;
+import com.github.maxopoly.angeliacore.actions.actions.LookAt;
 import com.github.maxopoly.angeliacore.actions.actions.LookAtAndBreakBlock;
 import com.github.maxopoly.angeliacore.actions.actions.MoveTo;
+import com.github.maxopoly.angeliacore.actions.actions.Wait;
 import com.github.maxopoly.angeliacore.actions.actions.inventory.ChangeSelectedItem;
+import com.github.maxopoly.angeliacore.actions.actions.inventory.ClickInventory;
 import com.github.maxopoly.angeliacore.connection.DisconnectReason;
 import com.github.maxopoly.angeliacore.connection.ServerConnection;
 import com.github.maxopoly.angeliacore.event.AngeliaEventHandler;
@@ -16,10 +19,12 @@ import com.github.maxopoly.angeliacore.event.events.HealthChangeEvent;
 import com.github.maxopoly.angeliacore.event.events.HungerChangeEvent;
 import com.github.maxopoly.angeliacore.event.events.TeleportByServerEvent;
 import com.github.maxopoly.angeliacore.model.inventory.Inventory;
+import com.github.maxopoly.angeliacore.model.inventory.PlayerInventory;
 import com.github.maxopoly.angeliacore.model.item.ItemStack;
 import com.github.maxopoly.angeliacore.model.item.Material;
 import com.github.maxopoly.angeliacore.model.location.Location;
 import com.github.maxopoly.angeliacore.model.location.MovementDirection;
+import com.github.maxopoly.angeliacore.model.location.Vector;
 import com.github.maxopoly.angeliacore.plugin.AngeliaPlugin;
 import com.github.maxopoly.angeliacore.util.BreakTimeCalculator;
 import com.github.maxopoly.angeliacore.util.HorizontalField;
@@ -43,6 +48,10 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 	protected ItemStack cachedTool;
 	protected boolean movingBack;
 	private List<Location> lastLocations;
+	private MovementDirection dropoffDir;
+	private int melons;
+	private Location waitingLocation;
+	private long waitingTime;
 
 	public MelonBot() {
 		super("MelonBot");
@@ -55,6 +64,7 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 		if (connection.getPlayerStatus().getHunger() < 20) {
 			eat();
 		}
+		queueEmpty(null);
 	}
 
 	private void eat() {
@@ -80,7 +90,7 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 	private void breakMelon(Location loc) {
 		pickAxe();
 		queue.queue(new LookAtAndBreakBlock(connection, loc, getBreakTime()));
-		queue.queue(new MoveTo(connection, loc.getBlockCenterXZ(), MoveTo.SPRINTING_SPEED));
+		queue.queue(new MoveTo(connection, loc.getBlockCenterXZ(), MoveTo.WALKING_SPEED));
 	}
 
 	@AngeliaEventHandler
@@ -109,7 +119,20 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 
 	private void atEndOfField() {
 		movingBack = true;
-		queue.queue(new MoveTo(connection, field.getStartingLocation().getBlockCenterXZ(), MoveTo.SPRINTING_SPEED));
+		Location start = field.getStartingLocation().getBlockCenterXZ();
+		Location player = connection.getPlayerStatus().getLocation();
+
+		Vector toMiddle = Vector.calcLocationDifference(player, waitingLocation);
+		Location firstToMiddle = player.addVector(toMiddle.cross(field.getSecondaryDirection().toVector()));
+		queue.queue(new MoveTo(connection, firstToMiddle, MoveTo.SPRINTING_SPEED));
+		queue.queue(new MoveTo(connection, waitingLocation, MoveTo.SPRINTING_SPEED));
+		queue.queue(new Wait(connection, (int) (connection.getTicksPerSecond() * waitingTime)));
+
+		Vector toStart = Vector.calcLocationDifference(waitingLocation, field.getStartingLocation());
+		Location backToStart = waitingLocation.addVector(toStart.cross(field.getOriginalPrimaryMovementDirection()
+				.toVector()));
+		queue.queue(new MoveTo(connection, backToStart, MoveTo.SPRINTING_SPEED));
+		queue.queue(new MoveTo(connection, start, MoveTo.SPRINTING_SPEED));
 		field = field.copy(field.getY());
 		locIterator = field.iterator();
 		lastLocations.clear();
@@ -156,7 +179,10 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 	@AngeliaEventHandler
 	public void queueEmpty(ActionQueueEmptiedEvent e) {
 		if (locIterator.hasNext()) {
-			// important to get direction before block
+			Location currLoc = connection.getPlayerStatus().getLocation().toBlockLocation();
+			if (field.isAtSide(dropoffDir, currLoc)) {
+				dropMelons();
+			}
 			Location target = locIterator.next();
 			lastLocations.add(target);
 			if (lastLocations.size() > 10) {
@@ -165,6 +191,32 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 			breakMelon(target);
 		} else {
 			atEndOfField();
+		}
+	}
+
+	private void dropMelons() {
+		Vector dropVector = dropoffDir.toVector().multiply(5);
+		queue.queue(new LookAt(connection, connection.getPlayerStatus().getLocation()
+				.relativeBlock(dropVector.getX(), 0, dropVector.getZ())));
+		PlayerInventory inv = connection.getPlayerStatus().getPlayerInventory();
+		Inventory storageInv = inv.getPlayerStorage();
+		int thrown = 0;
+		for (int i = 0; i < storageInv.getSize(); i++) {
+			ItemStack is = storageInv.getSlot(i);
+			if (is == null || is.getMaterial() == Material.EMPTY_SLOT) {
+				continue;
+			}
+			if (is.getMaterial() == Material.MELON_BLOCK) {
+				// throw entire stack
+				queue.queue(new ClickInventory(connection, (byte) 0, inv.translateStorageSlotToTotal(i), (byte) 1, 4,
+						is));
+				thrown += is.getAmount();
+			}
+		}
+		melons += thrown;
+		if (thrown != 0) {
+			connection.getLogger().info(
+					String.format("Threw %d melons into the collection, total of %d harvest so far", thrown, melons));
 		}
 	}
 
@@ -224,14 +276,27 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 		try {
 			startingDirection = MovementDirection.valueOf(args.get("dir1").get(0).toUpperCase());
 			secondaryDirection = MovementDirection.valueOf(args.get("dir2").get(0).toUpperCase());
+			dropoffDir = MovementDirection.valueOf(args.get("wdir").get(0).toUpperCase());
 		} catch (IllegalArgumentException e) {
 			connection.getLogger().info("One of the provided movement directions could not be parsed");
 			finish();
 			return;
 		}
-		this.field = new HorizontalField(lowerX, upperX, lowerZ, upperZ, y, startingDirection, secondaryDirection, true,
-				new int[] { 1, 3 });
+		this.field = new HorizontalField(lowerX, upperX, lowerZ, upperZ, y, startingDirection, secondaryDirection,
+				true, new int[] { 3, 1 });
 		this.locIterator = field.iterator();
+		if (args.containsKey("wt")) {
+			try {
+				int x = Integer.parseInt(args.get("wx").get(0));
+				int z = Integer.parseInt(args.get("wz").get(0));
+				waitingTime = Integer.parseInt(args.get("wt").get(0));
+				waitingLocation = new Location(x, y, z).toBlockLocation().getBlockCenterXZ();
+			} catch (NumberFormatException e) {
+				connection.getLogger().info("The waiting data given contained malformed numbers");
+				finish();
+				return;
+			}
+		}
 		if (args.containsKey("ff")) {
 			// fast forward to current location
 			Location playerLoc = connection.getPlayerStatus().getLocation().toBlockLocation();
@@ -289,10 +354,15 @@ public class MelonBot extends AngeliaPlugin implements AngeliaListener {
 				.desc("Cardinal direction in which the bot will begin to move").build());
 		options.add(Option.builder("dir2").longOpt("secondaryDirection").numberOfArgs(1).required()
 				.desc("Secondary direction in which the bot will move after finish a line").build());
+		options.add(Option.builder("wt").longOpt("waitingTime").numberOfArgs(1).required(false)
+				.desc("The time the bot will wait at the waiting location in second").build());
+		options.add(Option.builder("wx").longOpt("waitingX").numberOfArgs(1).required(false)
+				.desc("x coordinate of the waiting position").build());
+		options.add(Option.builder("wz").longOpt("waitingZ").numberOfArgs(1).required(false)
+				.desc("z coordinate of the waiting position").build());
 		options.add(Option.builder("ff").longOpt("fast-forward").hasArg(false).required(false).build());
-		options.add(Option.builder("h").longOpt("height")
-				.desc("How many blocks the bot should mine per location. Defaults to 4, must be an integer between 2 and 6")
-				.numberOfArgs(1).required(false).build());
+		options.add(Option.builder("wdir").longOpt("waterDirection").numberOfArgs(1).required()
+				.desc("The side of the field on which the bot is supposed to throw out melons").build());
 		return options;
 	}
 

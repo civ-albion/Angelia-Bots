@@ -2,7 +2,9 @@ package com.github.maxopoly.digging;
 
 import com.github.maxopoly.angeliacore.actions.actions.LookAtAndPlaceBlock;
 import com.github.maxopoly.angeliacore.connection.ServerConnection;
+import com.github.maxopoly.angeliacore.event.AngeliaEventHandler;
 import com.github.maxopoly.angeliacore.event.AngeliaListener;
+import com.github.maxopoly.angeliacore.event.events.PlayerSpawnEvent;
 import com.github.maxopoly.angeliacore.model.location.BlockFace;
 import com.github.maxopoly.angeliacore.model.location.Location;
 import com.github.maxopoly.angeliacore.plugin.AngeliaPlugin;
@@ -23,6 +25,7 @@ public class DummyBot extends AngeliaPlugin implements AngeliaListener {
 
 	@Override
 	public void start() {
+		conn.getEventHandler().registerListener(this);
 		Location loc = conn.getPlayerStatus().getLocation().toBlockLocation().relativeBlock(0, -1, 0);
 		System.out.println(loc);
 		conn.getActionQueue().queue(new LookAtAndPlaceBlock(conn, loc, BlockFace.WEST));
@@ -48,6 +51,11 @@ public class DummyBot extends AngeliaPlugin implements AngeliaListener {
 	public void tearDown() {
 		// TODO Auto-generated method stub
 
+	}
+
+	@AngeliaEventHandler
+	public void playerspawn(PlayerSpawnEvent e) {
+		System.out.println("Spawned" + e.getOnlinePlayer().getName());
 	}
 
 	@Override
