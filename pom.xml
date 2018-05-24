@@ -34,4 +34,11 @@
 			<version>20160810</version>
 		</dependency>
 	</dependencies>
+	 <repositories>
+    <repository>
+      <id>github-civ-albion</id>
+      <name>Github albion repository</name>
+      <url>https://raw.githubusercontent.com/civ-albion/Angelia-core/repository</url>
+    </repository>
+  </repositories>
 </project>
